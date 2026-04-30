@@ -1,0 +1,4 @@
+*.gguf
+.DS_Store
+.idea
+.iml
