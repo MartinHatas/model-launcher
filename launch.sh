@@ -37,6 +37,11 @@ REPEAT_PENALTY=1.0
 REASONING=off
 REASONING_BUDGET=0
 CHAT_TEMPLATE_KWARGS=""
+# MTP (Multi-Token Prediction) self-speculative decoding. Off by default — only
+# MTP-GGUF models carry the embedded draft head. SPEC_DRAFT_N_MAX is the number
+# of tokens drafted per step (llama.cpp default 3; Unsloth recommends 2).
+MTP=off
+SPEC_DRAFT_N_MAX=2
 N_PARALLEL=1
 PORT=8001
 
@@ -129,8 +134,8 @@ fi
 
 # ── Parameter list (order matters for display) ────────────────────────────────
 # Parallel arrays: variable names, display labels, current values
-PARAM_NAMES=(CTX_SIZE N_PREDICT TEMP TOP_P TOP_K MIN_P PRESENCE_PENALTY REPEAT_PENALTY CACHE_TYPE_K CACHE_TYPE_V BATCH_SIZE UBATCH_SIZE GPU_LAYERS THREADS N_CPU_MOE REASONING REASONING_BUDGET CHAT_TEMPLATE_KWARGS N_PARALLEL PORT)
-PARAM_LABELS=("Context size" "Max output" "Temperature" "Top-P" "Top-K" "Min-P" "Presence penalty" "Repeat penalty" "KV cache K" "KV cache V" "Batch size" "Ubatch size" "GPU layers" "Threads" "CPU-MoE layers" "Reasoning" "Reasoning budget" "Chat tmpl kwargs" "Parallel slots" "Port")
+PARAM_NAMES=(CTX_SIZE N_PREDICT TEMP TOP_P TOP_K MIN_P PRESENCE_PENALTY REPEAT_PENALTY CACHE_TYPE_K CACHE_TYPE_V BATCH_SIZE UBATCH_SIZE GPU_LAYERS THREADS N_CPU_MOE REASONING REASONING_BUDGET CHAT_TEMPLATE_KWARGS MTP SPEC_DRAFT_N_MAX N_PARALLEL PORT)
+PARAM_LABELS=("Context size" "Max output" "Temperature" "Top-P" "Top-K" "Min-P" "Presence penalty" "Repeat penalty" "KV cache K" "KV cache V" "Batch size" "Ubatch size" "GPU layers" "Threads" "CPU-MoE layers" "Reasoning" "Reasoning budget" "Chat tmpl kwargs" "MTP spec-decode" "MTP draft tokens" "Parallel slots" "Port")
 
 get_param() { eval echo "\$$1"; }
 
@@ -200,6 +205,13 @@ fi
 # ── Derive reasoning budget from mode ─────────────────────────────────────────
 if [[ "$REASONING" == "on" && "$REASONING_BUDGET" == "0" ]]; then
     REASONING_BUDGET="-1"
+fi
+
+# ── MTP constraint: spec decoding needs a single slot (-np 1 in llama.cpp) ─────
+# Multi-slot (-np > 1) and --mmproj are not yet supported alongside MTP.
+if [[ "${MTP:-off}" == "on" && "${N_PARALLEL:-1}" != "1" ]]; then
+    echo -e "  ${YELLOW}note:${NC} MTP requires a single slot — forcing parallel slots to 1 (was $N_PARALLEL)"
+    N_PARALLEL=1
 fi
 
 # ── Write OpenCode provider config ───────────────────────────────────────────
@@ -312,6 +324,7 @@ echo ""
 EXTRA_FLAGS=()
 [[ -n "$CHAT_TEMPLATE_KWARGS" ]] && EXTRA_FLAGS+=(--chat-template-kwargs "$CHAT_TEMPLATE_KWARGS")
 [[ "${N_CPU_MOE:-0}" -gt 0 ]] && EXTRA_FLAGS+=(--n-cpu-moe "$N_CPU_MOE")
+[[ "${MTP:-off}" == "on" ]] && EXTRA_FLAGS+=(--spec-type draft-mtp --spec-draft-n-max "${SPEC_DRAFT_N_MAX:-2}")
 
 # ── Launch ────────────────────────────────────────────────────────────────────
 exec llama-server \
